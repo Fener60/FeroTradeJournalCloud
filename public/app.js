@@ -42,6 +42,12 @@ function realizedBalance(){
   return n(settings?.starting_balance)+trades.filter(t=>t.status==='CLOSED').reduce((s,t)=>s+n(t.net_pnl),0);
 }
 function current1R(){return realizedBalance()*0.01}
+function displayModel(t){return t?.entry_type==='Binance Auto Import'?'Binance Import':t?.model}
+function tradeRiskMoney(t){
+  const distance=Math.abs(n(t?.entry_price)-n(t?.stop_price));
+  const qty=Math.abs(n(t?.quantity));
+  return distance>0&&qty>0?distance*qty:n(t?.risk_at_entry);
+}
 function grossR(t, price){
   const d=Math.abs(n(t.entry_price)-n(t.stop_price)); if(!d)return 0;
   return t.direction==='LONG'?(n(price)-n(t.entry_price))/d:(n(t.entry_price)-n(price))/d;
@@ -139,7 +145,7 @@ function renderDashboard(){
   const netRs=closed.map(t=>n(t.net_r));
   const expectancy=netRs.length?netRs.reduce((a,b)=>a+b,0)/netRs.length:0;
   const totalR=netRs.reduce((a,b)=>a+b,0);
-  const openRisk=open.reduce((s,t)=>s+n(t.risk_at_entry),0);
+  const openRisk=open.reduce((s,t)=>s+tradeRiskMoney(t),0);
 
   let eq=n(settings.starting_balance),peak=eq,maxDD=0,lossStreak=0,maxLossStreak=0;
   const chrono=[...closed].sort((a,b)=>new Date(a.closed_at)-new Date(b.closed_at));
@@ -152,7 +158,7 @@ function renderDashboard(){
   $('dExp').textContent=(expectancy>=0?'+':'')+expectancy.toFixed(2)+'R';$('dTotalR').textContent=(totalR>=0?'+':'')+totalR.toFixed(2)+'R';
   $('dDD').textContent=maxDD.toFixed(2)+'%';$('dLossStreak').textContent=String(maxLossStreak);$('dOpenRisk').textContent=money(openRisk);
 
-  $('recentTrades').innerHTML=trades.slice(0,7).map(t=>`<div class="box"><b>${t.symbol}</b> · ${t.direction} · ${t.model} · ${t.status==='OPEN'?'AÇIK':((n(t.net_r)>=0?'+':'')+n(t.net_r).toFixed(2)+'R')}</div>`).join('')||'<div class="box">Henüz işlem yok.</div>';
+  $('recentTrades').innerHTML=trades.slice(0,7).map(t=>`<div class="box"><b>${t.symbol}</b> · ${t.direction} · ${displayModel(t)} · ${t.status==='OPEN'?'AÇIK':((n(t.net_r)>=0?'+':'')+n(t.net_r).toFixed(2)+'R')}</div>`).join('')||'<div class="box">Henüz işlem yok.</div>';
   renderEquity(eqPoints);
   renderModelStats(closed);
 }
@@ -163,8 +169,8 @@ function renderEquity(values){
   svg.innerHTML=`<line x1="0" y1="${h/2}" x2="${w}" y2="${h/2}"></line><polyline points="${pts}"></polyline>`;
 }
 function renderModelStats(closed){
-  const models=['Golden Zone','Order Block'];
-  $('modelStats').innerHTML=models.map(m=>{const a=closed.filter(t=>t.model===m);const wins=a.filter(t=>n(t.net_pnl)>0).length;const r=a.reduce((s,t)=>s+n(t.net_r),0);return `<div class="box"><b>${m}</b><br>${a.length} işlem · Win ${(a.length?wins/a.length*100:0).toFixed(1)}% · ${(r>=0?'+':'')+r.toFixed(2)}R</div>`}).join('');
+  const models=['Golden Zone','Order Block','Binance Import'];
+  $('modelStats').innerHTML=models.map(m=>{const a=closed.filter(t=>displayModel(t)===m);const wins=a.filter(t=>n(t.net_pnl)>0).length;const r=a.reduce((s,t)=>s+n(t.net_r),0);return `<div class="box"><b>${m}</b><br>${a.length} işlem · Win ${(a.length?wins/a.length*100:0).toFixed(1)}% · ${(r>=0?'+':'')+r.toFixed(2)}R</div>`}).join('');
 }
 
 function psychMessage(t,r){
@@ -175,7 +181,7 @@ function psychMessage(t,r){
 }
 function renderOpen(){
   const open=trades.filter(t=>t.status==='OPEN');
-  $('openTrades').innerHTML=open.map(t=>{const p=n(t.current_price||t.entry_price),r=grossR(t,p),upnl=r*n(t.risk_at_entry);
+  $('openTrades').innerHTML=open.map(t=>{const p=n(t.current_price||t.entry_price),r=grossR(t,p),upnl=r*tradeRiskMoney(t),isBinance=t.entry_type==='Binance Auto Import';
     return `<div class="trade"><div class="trade-head"><div><span class="symbol">${t.symbol}</span> <span class="badge ${t.direction==='LONG'?'long':'short'}">${t.direction}</span></div><b class="${r>=0?'green':'red'}">${r>=0?'+':''}${r.toFixed(2)}R</b></div>
     <div class="trade-stats">
       <div class="stat"><small>Entry</small><b>${fmt(t.entry_price,8)}</b></div><div class="stat"><small>Stop</small><b>${fmt(t.stop_price,8)}</b></div><div class="stat"><small>3R TP</small><b>${fmt(t.take_profit_price,8)}</b></div>
@@ -194,7 +200,7 @@ $('confirmCloseBtn').onclick=async()=>{
 
 function renderHistory(){
   const closed=trades.filter(t=>t.status==='CLOSED');
-  $('historyBody').innerHTML=closed.map(t=>`<tr><td>${new Date(t.closed_at||t.created_at).toLocaleString('tr-TR')}</td><td>${t.symbol}</td><td>${t.direction}</td><td>${t.model}</td><td>${money(t.risk_at_entry)}</td><td class="${n(t.net_r)>=0?'green':'red'}">${n(t.net_r)>=0?'+':''}${n(t.net_r).toFixed(2)}R</td><td class="${n(t.net_pnl)>=0?'green':'red'}">${n(t.net_pnl)>=0?'+':''}${money(t.net_pnl)}</td><td>${t.close_reason||'-'}</td><td>${t.plan_outcome?`${t.plan_outcome} (${n(t.plan_outcome_r)>=0?'+':''}${n(t.plan_outcome_r).toFixed(0)}R) · fark ${n(t.early_exit_difference_r).toFixed(2)}R`:t.plan_outcome_pending?'Takip devam ediyor':'-'}</td></tr>`).join('')||'<tr><td colspan="9">Kapanmış işlem yok.</td></tr>';
+  $('historyBody').innerHTML=closed.map(t=>`<tr><td>${new Date(t.closed_at||t.created_at).toLocaleString('tr-TR')}</td><td>${t.symbol}</td><td>${t.direction}</td><td>${displayModel(t)}</td><td>${money(t.risk_at_entry)}</td><td class="${n(t.net_r)>=0?'green':'red'}">${n(t.net_r)>=0?'+':''}${n(t.net_r).toFixed(2)}R</td><td class="${n(t.net_pnl)>=0?'green':'red'}">${n(t.net_pnl)>=0?'+':''}${money(t.net_pnl)}</td><td>${t.close_reason||'-'}</td><td>${t.plan_outcome?`${t.plan_outcome} (${n(t.plan_outcome_r)>=0?'+':''}${n(t.plan_outcome_r).toFixed(0)}R) · fark ${n(t.early_exit_difference_r).toFixed(2)}R`:t.plan_outcome_pending?'Takip devam ediyor':'-'}</td></tr>`).join('')||'<tr><td colspan="9">Kapanmış işlem yok.</td></tr>';
 }
 
 function renderPsych(){
@@ -222,6 +228,7 @@ async function loadBinanceStatus(){
   try{const x=await api('/api/binance/status');$('binanceStatus').innerHTML=x.connected?`<b class="green">Bağlı</b><br>Son senkron: ${x.connection.last_sync_at?new Date(x.connection.last_sync_at).toLocaleString('tr-TR'):'Henüz yok'}${x.connection.last_error?'<br><span class="red">'+x.connection.last_error+'</span>':''}`:'<b>Bağlı değil.</b> Public TP/SL takibi yine çalışır.'}catch(e){$('binanceStatus').textContent=e.message}
 }
 $('binanceConnectBtn').onclick=async()=>{try{setMsg($('binanceMsg'),'Doğrulanıyor…');await api('/api/binance/connect',{method:'POST',body:JSON.stringify({api_key:$('bApiKey').value,api_secret:$('bApiSecret').value})});$('bApiKey').value='';$('bApiSecret').value='';setMsg($('binanceMsg'),'Read-only bağlantı kuruldu.','ok');await ensureSettings();await loadBinanceStatus()}catch(e){setMsg($('binanceMsg'),e.message,'error')}};
+$('binanceSyncBtn').onclick=async()=>{try{setMsg($('binanceMsg'),'Binance pozisyonları ve SL emirleri okunuyor…');const x=await api('/api/binance/sync-now',{method:'POST',body:'{}'});await loadTrades();renderAll();await loadBinanceStatus();setMsg($('binanceMsg'),`Senkron tamamlandı · Açık pozisyon: ${x.positions} · Yeni aktarılan: ${x.imported} · SL bekleyen: ${x.waitingForStop}`,'ok')}catch(e){setMsg($('binanceMsg'),e.message,'error')}};
 $('binanceDisconnectBtn').onclick=async()=>{try{await api('/api/binance/disconnect',{method:'POST',body:'{}'});setMsg($('binanceMsg'),'Bağlantı kaldırıldı.','ok');await ensureSettings();await loadBinanceStatus()}catch(e){setMsg($('binanceMsg'),e.message,'error')}};
 
 function renderAdd(){
