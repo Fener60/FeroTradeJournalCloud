@@ -28,6 +28,7 @@
   <aside class="sidebar">
     <div class="brand">FERO <span>JOURNAL</span></div>
     <button class="nav active" data-page="dashboard">Dashboard</button>
+    <button class="nav" data-page="incoming">Gelen Sinyaller</button>
     <button class="nav" data-page="add">İşlem Ekle</button>
     <button class="nav" data-page="open">Açık İşlemler</button>
     <button class="nav" data-page="history">Geçmiş</button>
@@ -75,6 +76,14 @@
           </div>
           <div class="panel"><h2>Model İstatistikleri</h2><div id="modelStats"></div></div>
         </div>
+      </div>
+    </section>
+
+    <section id="incoming" class="page">
+      <div class="panel">
+        <h2>AlgoCloud'dan Gelen LONG / SHORT Sinyalleri</h2>
+        <div class="box good">Sistemi Başlat açıkken bulut tarayıcıda oluşan sinyaller burada otomatik görünür. Bu liste gerçek Binance işlemi değildir; yalnız sinyal kaydıdır.</div>
+        <div id="incomingSignals"></div>
       </div>
     </section>
 
