@@ -184,15 +184,17 @@
           <label>API Secret</label><input id="bApiSecret" type="password" autocomplete="new-password">
           <div class="row">
             <button id="binanceConnectBtn" class="primary">Read-Only Bağla</button>
+            <button id="binanceSyncBtn" class="secondary">Şimdi Senkronla</button>
             <button id="binanceDisconnectBtn" class="secondary">Bağlantıyı Kaldır</button>
           </div>
           <div id="binanceMsg" class="msg"></div>
         </div>
         <div class="panel">
           <h2>Bu bağlantı ne yapar?</h2>
-          <div class="box">Gerçek Binance pozisyonunu görür. Pozisyonu borsada erken kapatırsan journal bunu otomatik algılayabilir.</div>
+          <div class="box good"><b>Otomatik içe aktarma:</b><br><br>Binance Futures'ta pozisyonu açıp koruyucu SL emrini eklediğinde journal pozisyonu, Entry'yi, miktarı, kaldıracı ve SL'yi okuyup otomatik kaydeder. 3R hedefini kendisi hesaplar.</div>
+          <div class="box"><b>Read-only:</b> Bu bağlantı Binance'e emir göndermez, emir iptal etmez ve pozisyon açıp kapatamaz.</div>
           <div class="box">API Secret tarayıcı localStorage'ına yazılmaz; sunucuya gönderilir ve veritabanında şifreli tutulur.</div>
-          <div class="box good">Binance hesabı bağlamasan bile public fiyat takip motoru TP/SL günlüğünü otomatik çalıştırır.</div>
+          <div class="box warn">Binance'ten otomatik alınan işlemi Binance üzerinden kapat. Journal gerçek kapanışı ve gerçekleşen sonucu read-only API'den takip eder.</div>
         </div>
       </div>
     </section>
