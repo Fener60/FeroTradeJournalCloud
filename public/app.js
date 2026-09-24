@@ -6,6 +6,7 @@ const supabase = createClient(config.supabaseUrl, config.supabaseAnonKey);
 let session = null;
 let settings = null;
 let trades = [];
+let incomingSignals = [];
 let realtimeChannel = null;
 
 const defaultRules = [
@@ -94,10 +95,18 @@ async function loadTrades(){
   const {data,error}=await supabase.from('trades').select('*').order('created_at',{ascending:false});
   if(error)throw error; trades=data||[]; localStorage.setItem('fero_last_trades',JSON.stringify(trades));
 }
+async function loadIncomingSignals(){
+  const {data,error}=await supabase.from('scanner_signals').select('*').order('signal_time',{ascending:false}).limit(100);
+  if(error){
+    incomingSignals=[];
+    return;
+  }
+  incomingSignals=data||[];
+}
 async function loadAll(){
   try{
     $('syncState').textContent='Buluttan yükleniyor…';
-    await ensureSettings();await loadTrades();renderAll();subscribeRealtime();
+    await ensureSettings();await Promise.all([loadTrades(),loadIncomingSignals()]);renderAll();subscribeRealtime();
     $('syncState').textContent='Bulut senkronu aktif';
   }catch(e){
     console.error(e);
@@ -107,8 +116,9 @@ async function loadAll(){
 }
 function subscribeRealtime(){
   if(realtimeChannel)supabase.removeChannel(realtimeChannel);
-  realtimeChannel=supabase.channel('fero-trades')
+  realtimeChannel=supabase.channel('fero-live')
     .on('postgres_changes',{event:'*',schema:'public',table:'trades',filter:`user_id=eq.${session.user.id}`},async()=>{await loadTrades();renderAll();$('syncState').textContent='Senkronlandı · '+new Date().toLocaleTimeString('tr-TR')})
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'scanner_signals',filter:`user_id=eq.${session.user.id}`},async()=>{await loadIncomingSignals();renderIncoming();$('syncState').textContent='Yeni AlgoCloud sinyali · '+new Date().toLocaleTimeString('tr-TR')})
     .subscribe();
 }
 
@@ -231,12 +241,33 @@ $('binanceConnectBtn').onclick=async()=>{try{setMsg($('binanceMsg'),'Doğrulanı
 $('binanceSyncBtn').onclick=async()=>{try{setMsg($('binanceMsg'),'Binance pozisyonları ve SL emirleri okunuyor…');const x=await api('/api/binance/sync-now',{method:'POST',body:'{}'});await loadTrades();renderAll();await loadBinanceStatus();setMsg($('binanceMsg'),`Senkron tamamlandı · Açık pozisyon: ${x.positions} · Yeni aktarılan: ${x.imported} · SL bekleyen: ${x.waitingForStop}`,'ok')}catch(e){setMsg($('binanceMsg'),e.message,'error')}};
 $('binanceDisconnectBtn').onclick=async()=>{try{await api('/api/binance/disconnect',{method:'POST',body:'{}'});setMsg($('binanceMsg'),'Bağlantı kaldırıldı.','ok');await ensureSettings();await loadBinanceStatus()}catch(e){setMsg($('binanceMsg'),e.message,'error')}};
 
+function renderIncoming(){
+  const el=$('incomingSignals');
+  if(!el)return;
+  el.innerHTML=incomingSignals.length?incomingSignals.map(s=>`
+    <div class="trade">
+      <div class="trade-head">
+        <div><span class="symbol">${s.symbol}</span> <span class="badge ${s.direction==='LONG'?'long':'short'}">${s.direction}</span></div>
+        <b>${s.timeframe||'-'}</b>
+      </div>
+      <div class="trade-stats">
+        <div class="stat"><small>İndikatör</small><b>${s.indicator_name||s.indicator_id}</b></div>
+        <div class="stat"><small>Sinyal Tipi</small><b>${s.signal_type||'-'}</b></div>
+        <div class="stat"><small>Entry</small><b>${s.entry_price?fmt(s.entry_price,8):'-'}</b></div>
+        <div class="stat"><small>Stop</small><b>${s.stop_price?fmt(s.stop_price,8):'-'}</b></div>
+        <div class="stat"><small>Target</small><b>${s.target_price?fmt(s.target_price,8):'-'}</b></div>
+        <div class="stat"><small>R:R</small><b>${s.rr?Number(s.rr).toFixed(2)+'R':'-'}</b></div>
+      </div>
+      <div class="box">${s.reason||'Cloud scanner sinyali'}<br><small>${new Date(s.signal_time).toLocaleString('tr-TR')}</small></div>
+    </div>`).join(''):'<div class="box">Henüz AlgoCloud sinyali yok.</div>';
+}
+
 function renderAdd(){
   $('add1R').textContent=money(current1R());
   const today=new Date().toDateString(),count=trades.filter(t=>new Date(t.created_at).toDateString()===today).length;
   $('addWarning').innerHTML=count>=3?`<div class="box warn">Bugün ${count} işlem kaydın var. Yeni işlem engellenmiyor. Sadece şunu sor: Bu yeni setup mı, yoksa işlem yapma dürtüsü mü?</div>`:'';
 }
-function renderAll(){renderDashboard();renderOpen();renderHistory();renderPsych();renderSettings();renderAdd()}
+function renderAll(){renderDashboard();renderIncoming();renderOpen();renderHistory();renderPsych();renderSettings();renderAdd()}
 
 $('exportJsonBtn').onclick=()=>download('fero-journal-backup.json',JSON.stringify({exported_at:new Date().toISOString(),settings,trades},null,2),'application/json');
 $('exportCsvBtn').onclick=()=>{const head=['date','symbol','direction','model','entry','stop','tp','gross_r','net_r','net_pnl','close_reason'];const rows=trades.map(t=>[t.created_at,t.symbol,t.direction,t.model,t.entry_price,t.stop_price,t.take_profit_price,t.gross_r,t.net_r,t.net_pnl,t.close_reason].map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(','));download('fero-journal.csv',[head.join(','),...rows].join('\n'),'text/csv')};
