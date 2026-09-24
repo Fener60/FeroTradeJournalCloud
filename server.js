@@ -202,7 +202,7 @@ async function closeTrade(trade, exitPrice, reason, source, eventTime, overrides
   const netPnl = grossPnl - fees - funding - slippage;
   const netR = netPnl / Number(trade.risk_at_entry);
 
-  const automaticPlanExit = reason === 'AUTO_TP3' || reason === 'AUTO_SL';
+  const automaticPlanExit = reason === 'AUTO_TP3' || reason === 'AUTO_SL' || reason === 'BINANCE_TP3' || reason === 'BINANCE_SL';
   const manualEarly = !automaticPlanExit && grossR > -1 && grossR < 3;
 
   const update = {
@@ -303,6 +303,10 @@ async function watcherTick() {
         current_price_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }).eq('id', t.id).eq('status', 'OPEN');
+
+      // Binance'ten görülen gerçek pozisyonlarda journal fiyat dokundu diye işlemi kapatmaz.
+      // Gerçek kapanış Binance read-only hesap senkronundan gelir.
+      if (t.binance_tracking && t.binance_position_seen) continue;
 
       const hitTP = t.direction === 'LONG'
         ? price >= Number(t.take_profit_price)
@@ -410,6 +414,277 @@ app.post('/api/binance/disconnect', authUser, async (req, res) => {
   res.json({ ok: true });
 });
 
+function positionDirection(position) {
+  const side = String(position?.positionSide || '').toUpperCase();
+  if (side === 'LONG' || side === 'SHORT') return side;
+  const amt = Number(position?.positionAmt || 0);
+  if (amt > 0) return 'LONG';
+  if (amt < 0) return 'SHORT';
+  return null;
+}
+
+function protectiveStopForPosition(orders, position) {
+  const direction = positionDirection(position);
+  const entry = Number(position?.entryPrice || 0);
+  if (!direction || !entry) return null;
+
+  const expectedSide = direction === 'LONG' ? 'SELL' : 'BUY';
+  const positionSide = String(position?.positionSide || 'BOTH').toUpperCase();
+
+  const candidates = (orders || []).filter(order => {
+    if (!order || order.symbol !== position.symbol) return false;
+    const type = String(order.orderType || order.type || '').toUpperCase();
+    if (type !== 'STOP' && type !== 'STOP_MARKET') return false;
+    if (String(order.side || '').toUpperCase() !== expectedSide) return false;
+
+    const orderPositionSide = String(order.positionSide || 'BOTH').toUpperCase();
+    if (positionSide !== 'BOTH' && orderPositionSide !== 'BOTH' && orderPositionSide !== positionSide) return false;
+
+    const trigger = Number(order.triggerPrice ?? order.stopPrice ?? 0);
+    if (!Number.isFinite(trigger) || trigger <= 0) return false;
+    return direction === 'LONG' ? trigger < entry : trigger > entry;
+  });
+
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => {
+    const pa = Number(a.triggerPrice ?? a.stopPrice ?? 0);
+    const pb = Number(b.triggerPrice ?? b.stopPrice ?? 0);
+    return direction === 'LONG' ? pb - pa : pa - pb;
+  });
+  return candidates[0];
+}
+
+async function getOpenProtectiveOrders(apiKey, apiSecret) {
+  try {
+    // Binance USD-M conditional orders are on the Algo service.
+    const data = await binanceSigned(apiKey, apiSecret, '/fapi/v1/openAlgoOrders');
+    return Array.isArray(data) ? data : [];
+  } catch (algoError) {
+    console.error('openAlgoOrders fallback', algoError.message);
+    // Compatibility fallback for older/legacy order representations.
+    const data = await binanceSigned(apiKey, apiSecret, '/fapi/v1/openOrders');
+    return Array.isArray(data) ? data : [];
+  }
+}
+
+async function importBinancePosition(userId, position, stopOrder, settings) {
+  const direction = positionDirection(position);
+  const entry = Number(position.entryPrice || 0);
+  const stop = Number(stopOrder?.triggerPrice ?? stopOrder?.stopPrice ?? 0);
+  const signedAmt = Number(position.positionAmt || 0);
+  const quantity = Math.abs(signedAmt);
+  const leverage = Math.max(1, Number(position.leverage || 1));
+
+  if (!direction || !entry || !stop || !quantity) return null;
+  if (direction === 'LONG' && stop >= entry) return null;
+  if (direction === 'SHORT' && stop <= entry) return null;
+
+  const balance = await realizedBalance(userId, settings);
+  const distance = Math.abs(entry - stop);
+  const stopPct = distance / entry * 100;
+  const target1R = balance * 0.01;
+  const positionNotional = quantity * entry;
+  const tp = direction === 'LONG' ? entry + distance * 3 : entry - distance * 3;
+  const margin = positionNotional / leverage;
+  const checklist = settings.rules && typeof settings.rules === 'object' ? settings.rules : {};
+  const checklistScore = Object.values(checklist).filter(Boolean).length;
+  const actualStopRisk = quantity * distance;
+
+  const payload = {
+    user_id: userId,
+    symbol: String(position.symbol || '').toUpperCase(),
+    direction,
+    model: 'Golden Zone',
+    entry_type: 'Binance Auto Import',
+    timeframe: null,
+    htf: null,
+    entry_price: entry,
+    stop_price: stop,
+    take_profit_price: tp,
+    balance_at_entry: balance,
+    risk_at_entry: target1R,
+    stop_pct: stopPct,
+    position_notional: positionNotional,
+    quantity,
+    leverage,
+    margin_required: margin,
+    leverage_feasible: margin <= balance,
+    current_price: Number(position.markPrice || entry),
+    current_price_at: new Date().toISOString(),
+    checklist,
+    checklist_score: checklistScore,
+    reason: 'Binance Futures pozisyonundan otomatik içe aktarıldı.',
+    notes: `Binance Auto Import · 1R hedefi ${target1R.toFixed(8)} · Pozisyonun SL riski ${actualStopRisk.toFixed(8)}`,
+    binance_tracking: true,
+    binance_position_seen: true,
+    binance_last_position_amt: signedAmt,
+    binance_sync_note: 'Binance pozisyonu ve koruyucu SL emri otomatik algılandı.'
+  };
+
+  const { data, error } = await admin.from('trades').insert(payload).select('*').single();
+  if (error) throw error;
+  return data;
+}
+
+async function syncBinanceConnection(c) {
+  const apiKey = decryptText(c.encrypted_api_key);
+  const apiSecret = decryptText(c.encrypted_api_secret);
+  const settings = await getSettings(c.user_id);
+
+  const positionsRaw = await binanceSigned(apiKey, apiSecret, '/fapi/v3/positionRisk');
+  const positions = (Array.isArray(positionsRaw) ? positionsRaw : [positionsRaw])
+    .filter(p => p && Math.abs(Number(p.positionAmt || 0)) > 0 && Number(p.entryPrice || 0) > 0);
+
+  const protectiveOrders = positions.length
+    ? await getOpenProtectiveOrders(apiKey, apiSecret)
+    : [];
+
+  let { data: openTrades, error: openErr } = await admin.from('trades')
+    .select('*')
+    .eq('user_id', c.user_id)
+    .eq('status', 'OPEN')
+    .eq('binance_tracking', true);
+  if (openErr) throw openErr;
+  openTrades = openTrades || [];
+
+  let imported = 0;
+  let waitingForStop = 0;
+
+  for (const position of positions) {
+    const direction = positionDirection(position);
+    if (!direction) continue;
+
+    const existing = openTrades.find(t =>
+      t.symbol === position.symbol &&
+      t.direction === direction
+    );
+
+    if (existing) {
+      await admin.from('trades').update({
+        binance_position_seen: true,
+        binance_last_position_amt: Number(position.positionAmt || 0),
+        binance_sync_note: existing.entry_type === 'Binance Auto Import'
+          ? 'Binance otomatik pozisyon takibi aktif.'
+          : 'Journal işlemi Binance pozisyonuyla eşleştirildi.',
+        updated_at: new Date().toISOString()
+      }).eq('id', existing.id);
+      continue;
+    }
+
+    const stopOrder = protectiveStopForPosition(protectiveOrders, position);
+    if (!stopOrder) {
+      waitingForStop++;
+      continue;
+    }
+
+    const created = await importBinancePosition(c.user_id, position, stopOrder, settings);
+    if (created) {
+      imported++;
+      openTrades.push(created);
+    }
+  }
+
+  // Importtan sonra tüm açık Binance takipli journal işlemlerini gerçek pozisyon durumu ile eşleştir.
+  const { data: trackedRows, error: trackedErr } = await admin.from('trades')
+    .select('*')
+    .eq('user_id', c.user_id)
+    .eq('status', 'OPEN')
+    .eq('binance_tracking', true);
+  if (trackedErr) throw trackedErr;
+
+  for (const t of trackedRows || []) {
+    const matching = positions.filter(p =>
+      p.symbol === t.symbol &&
+      positionDirection(p) === t.direction &&
+      Math.abs(Number(p.positionAmt || 0)) > 0
+    );
+
+    const signedAmt = matching.reduce((sum, p) => sum + Number(p.positionAmt || 0), 0);
+    const absAmt = matching.reduce((sum, p) => sum + Math.abs(Number(p.positionAmt || 0)), 0);
+
+    if (absAmt > 0) {
+      await admin.from('trades').update({
+        binance_position_seen: true,
+        binance_last_position_amt: signedAmt,
+        binance_sync_note: t.entry_type === 'Binance Auto Import'
+          ? 'Binance otomatik pozisyon takibi aktif.'
+          : 'Binance pozisyonu görüldü.',
+        updated_at: new Date().toISOString()
+      }).eq('id', t.id);
+      continue;
+    }
+
+    if (!t.binance_position_seen) continue;
+
+    let exitPrice = Number(t.current_price || t.entry_price);
+    let grossPnl;
+    let fees;
+
+    try {
+      const startTime = new Date(t.created_at).getTime();
+      const userTrades = await binanceSigned(apiKey, apiSecret, '/fapi/v1/userTrades', {
+        symbol: t.symbol,
+        startTime,
+        limit: 1000
+      });
+
+      if (Array.isArray(userTrades) && userTrades.length) {
+        const rows = userTrades.filter(x => {
+          const ps = String(x.positionSide || 'BOTH').toUpperCase();
+          if (ps === 'BOTH') return true;
+          return ps === t.direction;
+        });
+        const used = rows.length ? rows : userTrades;
+        exitPrice = Number(used[used.length - 1].price || exitPrice);
+        grossPnl = used.reduce((s, x) => s + Number(x.realizedPnl || 0), 0);
+        fees = used.reduce((s, x) => s + Math.abs(Number(x.commission || 0)), 0);
+      }
+    } catch (e) {
+      console.error('userTrades fallback', e.message);
+    }
+
+    const exitR = calcGrossR(t, exitPrice);
+    const reason = exitR <= -0.95
+      ? 'BINANCE_SL'
+      : exitR >= 2.95
+        ? 'BINANCE_TP3'
+        : 'BINANCE_MANUAL_CLOSE';
+
+    await closeTrade(t, exitPrice, reason, 'BINANCE_READ_ONLY', new Date().toISOString(), {
+      grossPnl,
+      fees
+    });
+  }
+
+  await admin.from('binance_connections').update({
+    last_sync_at: new Date().toISOString(),
+    last_error: waitingForStop
+      ? `${waitingForStop} açık pozisyon için koruyucu SL bekleniyor.`
+      : null,
+    updated_at: new Date().toISOString()
+  }).eq('user_id', c.user_id);
+
+  return { positions: positions.length, imported, waitingForStop };
+}
+
+app.post('/api/binance/sync-now', authUser, async (req, res) => {
+  try {
+    const { data: connection, error } = await admin.from('binance_connections')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .eq('enabled', true)
+      .maybeSingle();
+    if (error) throw error;
+    if (!connection) return res.status(404).json({ error: 'Binance bağlantısı bulunamadı.' });
+
+    const result = await syncBinanceConnection(connection);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: `Binance senkronu başarısız: ${e.message}` });
+  }
+});
+
 async function binanceAccountSync() {
   try {
     const { data: conns, error } = await admin.from('binance_connections').select('*').eq('enabled', true);
@@ -417,61 +692,7 @@ async function binanceAccountSync() {
 
     for (const c of conns || []) {
       try {
-        const apiKey = decryptText(c.encrypted_api_key);
-        const apiSecret = decryptText(c.encrypted_api_secret);
-        const { data: openTrades } = await admin.from('trades')
-          .select('*')
-          .eq('user_id', c.user_id)
-          .eq('status', 'OPEN')
-          .eq('binance_tracking', true);
-
-        for (const t of openTrades || []) {
-          const positions = await binanceSigned(apiKey, apiSecret, '/fapi/v3/positionRisk', { symbol: t.symbol });
-          const rows = Array.isArray(positions) ? positions : [positions];
-          const relevant = rows.filter(p => p && p.symbol === t.symbol);
-          const amt = relevant.reduce((sum, p) => sum + Number(p.positionAmt || 0), 0);
-          const absAmt = Math.abs(amt);
-
-          if (absAmt > 0) {
-            await admin.from('trades').update({
-              binance_position_seen: true,
-              binance_last_position_amt: amt,
-              binance_sync_note: 'Binance pozisyonu görüldü.',
-              updated_at: new Date().toISOString()
-            }).eq('id', t.id);
-          } else if (t.binance_position_seen) {
-            let exitPrice = Number(t.current_price || t.entry_price);
-            let grossPnl;
-            let fees;
-
-            try {
-              const startTime = new Date(t.created_at).getTime();
-              const userTrades = await binanceSigned(apiKey, apiSecret, '/fapi/v1/userTrades', {
-                symbol: t.symbol,
-                startTime,
-                limit: 1000
-              });
-              if (Array.isArray(userTrades) && userTrades.length) {
-                exitPrice = Number(userTrades[userTrades.length - 1].price || exitPrice);
-                grossPnl = userTrades.reduce((s, x) => s + Number(x.realizedPnl || 0), 0);
-                fees = userTrades.reduce((s, x) => s + Math.abs(Number(x.commission || 0)), 0);
-              }
-            } catch (e) {
-              console.error('userTrades fallback', e.message);
-            }
-
-            await closeTrade(t, exitPrice, 'BINANCE_MANUAL_CLOSE', 'BINANCE_READ_ONLY', new Date().toISOString(), {
-              grossPnl,
-              fees
-            });
-          }
-        }
-
-        await admin.from('binance_connections').update({
-          last_sync_at: new Date().toISOString(),
-          last_error: null,
-          updated_at: new Date().toISOString()
-        }).eq('user_id', c.user_id);
+        await syncBinanceConnection(c);
       } catch (e) {
         await admin.from('binance_connections').update({
           last_error: e.message,
