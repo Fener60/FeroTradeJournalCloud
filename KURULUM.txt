@@ -1,0 +1,31 @@
+FERO TRADE JOURNAL CLOUD - KURULUM
+
+Bu ZIP çalışır proje kodunu içerir.
+Ama telefon + bilgisayar otomatik senkron ve bilgisayar kapalıyken fiyat takibi için internette bir sunucuya kurulması gerekir.
+
+1. Supabase hesabı aç.
+2. Yeni proje oluştur.
+3. ZIP içindeki supabase/schema.sql dosyasını Supabase SQL Editor'da çalıştır.
+4. Supabase'den Project URL, Publishable/Anon Key ve Service Role Key al.
+5. Bu projeyi Render veya Railway'e yükle.
+6. Sunucu environment alanına:
+   SUPABASE_URL
+   SUPABASE_ANON_KEY
+   SUPABASE_SERVICE_ROLE_KEY
+   APP_ENCRYPTION_KEY
+   değerlerini gir.
+7. Deploy et.
+8. Çıkan site adresini hem bilgisayardan hem telefondan aç.
+9. Aynı e-posta/şifre ile giriş yap.
+
+Bundan sonra:
+- Manuel veri getir yok.
+- Telefonda ve bilgisayarda aynı veriler.
+- İşlem eklemen yeterli.
+- 1R, 3R, pozisyon, kaldıraç, margin otomatik.
+- TP/SL journal kapanışı otomatik.
+- Kasa sadece kapanmış işlemle değişir.
+- Erken kapanan işlem planı arka planda izlenmeye devam eder.
+
+Not:
+Gerçek borsa stop emri yerine geçmez. Journal fiyatı izler ve günlük kaydını kapatır.

@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0a0f16">
+  <title>Fero Trade Journal Cloud</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="authScreen" class="auth-wrap">
+  <div class="auth-card">
+    <div class="brand">FERO <span>JOURNAL CLOUD</span></div>
+    <h1>İşlem günlüğün her cihazda aynı.</h1>
+    <p class="muted">Bilgisayarda eklediğin işlem telefonda otomatik görünür. Açık işlemler sunucuda takip edilir.</p>
+    <input id="authEmail" type="email" placeholder="E-posta">
+    <input id="authPassword" type="password" placeholder="Şifre">
+    <div class="row">
+      <button id="loginBtn" class="primary">Giriş Yap</button>
+      <button id="signupBtn" class="secondary">Hesap Oluştur</button>
+    </div>
+    <div id="authMsg" class="msg"></div>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+  <aside class="sidebar">
+    <div class="brand">FERO <span>JOURNAL</span></div>
+    <button class="nav active" data-page="dashboard">Dashboard</button>
+    <button class="nav" data-page="add">İşlem Ekle</button>
+    <button class="nav" data-page="open">Açık İşlemler</button>
+    <button class="nav" data-page="history">Geçmiş</button>
+    <button class="nav" data-page="psychology">Psikoloji</button>
+    <button class="nav" data-page="settings">Kasa & Kurallar</button>
+    <button class="nav" data-page="binance">Binance</button>
+    <button class="nav" data-page="backup">Yedek</button>
+    <button id="logoutBtn" class="nav danger-text">Çıkış</button>
+  </aside>
+
+  <main>
+    <div class="top">
+      <div>
+        <h1 id="pageTitle">Dashboard</h1>
+        <div id="syncState" class="tiny">Bulut senkronu hazırlanıyor…</div>
+      </div>
+      <div class="pill">1R = Kasanın %1'i</div>
+    </div>
+
+    <section id="dashboard" class="page active">
+      <div class="cards">
+        <div class="card"><small>Gerçekleşmiş Kasa</small><strong id="dBalance">-</strong></div>
+        <div class="card"><small>Güncel 1R</small><strong id="d1r" class="yellow">-</strong></div>
+        <div class="card"><small>3R Değeri</small><strong id="d3r" class="green">-</strong></div>
+        <div class="card"><small>Toplam Net</small><strong id="dNet">-</strong></div>
+        <div class="card"><small>Win Rate</small><strong id="dWin">-</strong></div>
+        <div class="card"><small>Expectancy</small><strong id="dExp">-</strong></div>
+        <div class="card"><small>Toplam R</small><strong id="dTotalR">-</strong></div>
+        <div class="card"><small>Max Drawdown</small><strong id="dDD" class="red">-</strong></div>
+        <div class="card"><small>Ardışık Zarar</small><strong id="dLossStreak">-</strong></div>
+        <div class="card"><small>Açık Risk</small><strong id="dOpenRisk" class="red">-</strong></div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <div class="panel"><h2>Equity Curve</h2><svg id="equityChart" viewBox="0 0 900 240" preserveAspectRatio="none"></svg></div>
+          <div class="panel"><h2>Son İşlemler</h2><div id="recentTrades"></div></div>
+        </div>
+        <div>
+          <div class="panel coach">
+            <h2>Bugünün Psikoloji Koçu</h2>
+            <div class="box good"><b>Her gün işlem açmak zorunda değilsin.</b><br><br>Setup yoksa sermayeyi korumak da doğru bir karardır.</div>
+            <div class="box"><b>Bugünkü hedef:</b><br><br>Para kazanmayı zorlamak değil, kurallara uygun karar vermek.</div>
+            <div class="box warn"><b>Kırmızı PnL ≠ teknik invalidation.</b><br><br>Önce stop ve yapıyı kontrol et.</div>
+          </div>
+          <div class="panel"><h2>Model İstatistikleri</h2><div id="modelStats"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="add" class="page">
+      <div class="grid">
+        <div>
+          <div class="panel">
+            <h2>Yeni İşlem — Sadece gerekli alanlar</h2>
+            <div id="addWarning"></div>
+            <div class="form">
+              <div><label>Coin / Parite</label><input id="tSymbol" placeholder="BTCUSDT"></div>
+              <div><label>Yön</label><select id="tDirection"><option>LONG</option><option>SHORT</option></select></div>
+              <div><label>Model</label><select id="tModel"><option>Golden Zone</option><option>Order Block</option></select></div>
+              <div><label>Giriş Modeli</label><select id="tEntryType"><option>Confirmation Entry</option><option>Market</option><option>Limit</option></select></div>
+              <div><label>Entry</label><input id="tEntry" type="number" step="any"></div>
+              <div><label>Stop</label><input id="tStop" type="number" step="any"></div>
+            </div>
+
+            <details>
+              <summary>İleri detaylar ve notlar</summary>
+              <div class="form detail-pad">
+                <div><label>Entry TF</label><select id="tTf"><option>1m</option><option>3m</option><option>5m</option><option selected>15m</option><option>30m</option><option>1H</option><option>4H</option><option>1D</option></select></div>
+                <div><label>HTF</label><select id="tHtf"><option selected>4H</option><option>1D</option><option>1W</option></select></div>
+                <div><label>Duygu</label><select id="tEmotion"><option>Sakin</option><option>Normal</option><option>Heyecanlı</option><option>FOMO</option><option>Korku</option><option>Zarar telafi etme isteği</option></select></div>
+                <div><label>İşlem açma dürtüsü 1-10</label><input id="tUrge" type="number" min="1" max="10" value="3"></div>
+                <div class="full"><label>Giriş sebebi</label><textarea id="tReason"></textarea></div>
+                <div class="full"><label>Not</label><textarea id="tNotes"></textarea></div>
+              </div>
+            </details>
+          </div>
+
+          <div class="panel">
+            <h2>İşlem Öncesi Kontrol — Engellemez, uyarır</h2>
+            <div id="checklist"></div>
+            <button id="saveTradeBtn" class="primary">İşlemi Ekle</button>
+            <div id="saveTradeMsg" class="msg"></div>
+          </div>
+        </div>
+
+        <div class="panel coach">
+          <h2>İşleme Girmeden Önce</h2>
+          <div class="box good"><b>Güncel 1R:</b><div id="add1R" class="big-number">-</div></div>
+          <div class="box">Sistem entry ve stop'tan <b>stop yüzdesini, pozisyon büyüklüğünü, adedi, kaldıracı, margini ve 3R hedefi</b> kendisi hesaplayacak.</div>
+          <div class="box warn"><b>Bugün işlem açmadıysan bir şey eksik değil.</b><br><br>İşlem bulmak zorunda değilsin. Setup gelmek zorunda.</div>
+          <div class="box"><b>Varsayılan davranış:</b><br><br>Bölge → temas → internal CHoCH/BOS teyidi → sonra giriş. Confirmation Entry senin için ana disiplin modeli.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="open" class="page"><div id="openTrades"></div></section>
+
+    <section id="history" class="page">
+      <div class="panel table-wrap">
+        <table>
+          <thead><tr><th>Tarih</th><th>Coin</th><th>Yön</th><th>Model</th><th>1R</th><th>Sonuç</th><th>Net K/Z</th><th>Kapanış</th><th>Plan Devam Etseydi</th></tr></thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="psychology" class="page">
+      <div class="grid">
+        <div class="panel">
+          <div class="headline">İşlem bulamamak problem değildir. Kuralsız işlem açmak problemdir.</div>
+          <div class="box"><b>Stop olmak başarısızlık değildir.</b><br><br>Kurala uygun −1R, sistemin normal maliyetidir.</div>
+          <div class="box"><b>Bir işlemin sonucu seni tanımlamaz.</b><br><br>Seri ve süreç önemlidir.</div>
+          <div class="box"><b>Manuel kapatma testi:</b><br><br>Çıkış sebebin teknik invalidation mı, yoksa kırmızı rakam mı?</div>
+        </div>
+        <div class="panel">
+          <h2>Erken Kapatma Analizi</h2>
+          <div id="earlyExitStats"></div>
+          <div class="box warn">Erken kapatılan işlemden sonra sistem orijinal SL ve 3R hedefini takip etmeye devam eder. Bu takip sadece psikoloji analizi içindir; kasanı değiştirmez.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="settings" class="page">
+      <div class="grid">
+        <div class="panel">
+          <h2>Kasa Ayarları</h2>
+          <div class="form">
+            <div><label>Başlangıç Kasası</label><input id="sBalance" type="number" step="any"></div>
+            <div><label>Para Birimi</label><select id="sCurrency"><option>USDT</option><option>USD</option><option>TRY</option></select></div>
+            <div><label>Maksimum Kaldıraç</label><input id="sMaxLev" type="number" min="1" max="125"></div>
+            <div><label>Tercih Edilen Margin Kullanımı %</label><input id="sMarginPct" type="number" min="1" max="100"></div>
+            <div><label>Toplam Fee %</label><input id="sFeePct" type="number" step="0.001"></div>
+            <div><label>Funding Maliyeti %</label><input id="sFundingPct" type="number" step="0.001"></div>
+            <div><label>Slippage %</label><input id="sSlippagePct" type="number" step="0.001"></div>
+          </div>
+          <br><button id="saveSettingsBtn" class="primary">Ayarları Kaydet</button><div id="settingsMsg" class="msg"></div>
+        </div>
+        <div class="panel">
+          <h2>Çekirdek Giriş Kuralları</h2>
+          <div id="rulesList"></div>
+          <div class="box">Bu kurallar <b>hard-block değildir.</b> İşlem eklemeni engellemez; eksik kural varsa bilinçli şekilde uyarır.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="binance" class="page">
+      <div class="grid">
+        <div class="panel">
+          <h2>Binance Read-Only Bağlantısı</h2>
+          <div id="binanceStatus" class="box">Kontrol ediliyor…</div>
+          <div class="box warn"><b>Güvenlik:</b> Oluşturduğun API anahtarında işlem yapma ve para çekme yetkilerini açma. Sadece okuma yetkisi kullan.</div>
+          <label>API Key</label><input id="bApiKey" autocomplete="off">
+          <label>API Secret</label><input id="bApiSecret" type="password" autocomplete="new-password">
+          <div class="row">
+            <button id="binanceConnectBtn" class="primary">Read-Only Bağla</button>
+            <button id="binanceDisconnectBtn" class="secondary">Bağlantıyı Kaldır</button>
+          </div>
+          <div id="binanceMsg" class="msg"></div>
+        </div>
+        <div class="panel">
+          <h2>Bu bağlantı ne yapar?</h2>
+          <div class="box">Gerçek Binance pozisyonunu görür. Pozisyonu borsada erken kapatırsan journal bunu otomatik algılayabilir.</div>
+          <div class="box">API Secret tarayıcı localStorage'ına yazılmaz; sunucuya gönderilir ve veritabanında şifreli tutulur.</div>
+          <div class="box good">Binance hesabı bağlamasan bile public fiyat takip motoru TP/SL günlüğünü otomatik çalıştırır.</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="backup" class="page">
+      <div class="grid">
+        <div class="panel">
+          <h2>Bulut + Yedek</h2>
+          <div class="box good">Asıl kayıt Supabase bulut veritabanındadır. Telefon veya bilgisayar değişse bile aynı hesapla giriş yaptığında aynı journal görünür.</div>
+          <button id="exportJsonBtn" class="primary">JSON Yedek İndir</button>
+          <button id="exportCsvBtn" class="secondary">CSV İndir</button>
+        </div>
+        <div class="panel">
+          <h2>Senkron Mantığı</h2>
+          <div class="box">Manuel “veri getir” düğmesi yok. Veritabanında işlem değiştiğinde ekran Realtime ile otomatik yenilenir.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="closeModal" class="modal">
+  <div class="modal-card">
+    <h2>Manuel İşlem Kapat</h2>
+    <input id="closeTradeId" type="hidden">
+    <label>Çıkış Fiyatı</label><input id="closePrice" type="number" step="any">
+    <label>Kapanış Sebebi</label>
+    <select id="closeReason">
+      <option>Teknik invalidation</option><option>Manuel - korku</option><option>Manuel - kârı koruma</option><option>Manuel - plansız çıkış</option><option>Diğer</option>
+    </select>
+    <label>Gerçek Fee (opsiyonel)</label><input id="closeFees" type="number" step="any">
+    <label>Gerçek Funding (opsiyonel)</label><input id="closeFunding" type="number" step="any">
+    <div class="row"><button id="confirmCloseBtn" class="primary">Kapat</button><button id="cancelCloseBtn" class="secondary">Vazgeç</button></div>
+    <div id="closeMsg" class="msg"></div>
+  </div>
+</div>
+
+<script src="/runtime-config.js"></script>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
