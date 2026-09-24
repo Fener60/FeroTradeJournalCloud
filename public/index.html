@@ -88,7 +88,6 @@
               <div><label>Coin / Parite</label><input id="tSymbol" placeholder="BTCUSDT"></div>
               <div><label>Yön</label><select id="tDirection"><option>LONG</option><option>SHORT</option></select></div>
               <div><label>Model</label><select id="tModel"><option>Golden Zone</option><option>Order Block</option></select></div>
-              <div><label>Giriş Modeli</label><select id="tEntryType"><option>Confirmation Entry</option><option>Market</option><option>Limit</option></select></div>
               <div><label>Entry</label><input id="tEntry" type="number" step="any"></div>
               <div><label>Stop</label><input id="tStop" type="number" step="any"></div>
             </div>
@@ -96,6 +95,7 @@
             <details>
               <summary>İleri detaylar ve notlar</summary>
               <div class="form detail-pad">
+                <div><label>Giriş Modeli</label><select id="tEntryType"><option selected>Confirmation Entry</option><option>Market</option><option>Limit</option></select></div>
                 <div><label>Entry TF</label><select id="tTf"><option>1m</option><option>3m</option><option>5m</option><option selected>15m</option><option>30m</option><option>1H</option><option>4H</option><option>1D</option></select></div>
                 <div><label>HTF</label><select id="tHtf"><option selected>4H</option><option>1D</option><option>1W</option></select></div>
                 <div><label>Duygu</label><select id="tEmotion"><option>Sakin</option><option>Normal</option><option>Heyecanlı</option><option>FOMO</option><option>Korku</option><option>Zarar telafi etme isteği</option></select></div>
@@ -107,8 +107,8 @@
           </div>
 
           <div class="panel">
-            <h2>İşlem Öncesi Kontrol — Engellemez, uyarır</h2>
-            <div id="checklist"></div>
+            <h2>İşlemi Kaydet</h2>
+            <div class="box good"><b>Kuralların otomatik uygulanıyor.</b><br><br>Kasa & Kurallar bölümünde seçtiğin giriş kuralları bu işleme arka planda kaydedilir. Her işlemde tekrar kutu işaretlemen gerekmez.</div>
             <button id="saveTradeBtn" class="primary">İşlemi Ekle</button>
             <div id="saveTradeMsg" class="msg"></div>
           </div>
@@ -169,7 +169,7 @@
         <div class="panel">
           <h2>Çekirdek Giriş Kuralları</h2>
           <div id="rulesList"></div>
-          <div class="box">Bu kurallar <b>hard-block değildir.</b> İşlem eklemeni engellemez; eksik kural varsa bilinçli şekilde uyarır.</div>
+          <div class="box">Bu kurallar işlem eklerken tekrar sorulmaz. Seçimlerin yeni işlemlere otomatik kaydedilir; işlem ekleme hiçbir zaman hard-block edilmez.</div>
         </div>
       </div>
     </section>
