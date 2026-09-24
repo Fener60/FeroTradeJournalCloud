@@ -110,25 +110,23 @@ document.querySelectorAll('.nav[data-page]').forEach(btn=>{
   btn.onclick=()=>{document.querySelectorAll('.nav').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));btn.classList.add('active');$(btn.dataset.page).classList.add('active');$('pageTitle').textContent=btn.textContent;if(btn.dataset.page==='binance')loadBinanceStatus()}
 });
 
-function renderChecklist(){
-  $('checklist').innerHTML=defaultRules.map(([k,label])=>`<label class="check"><input type="checkbox" data-check="${k}"><span>${label}</span></label>`).join('');
+function automaticChecklist(){
+  const savedRules=settings?.rules||{};
+  return Object.fromEntries(defaultRules.map(([key])=>[key,savedRules[key]!==false]));
 }
-function checklistObject(){const o={};document.querySelectorAll('[data-check]').forEach(x=>o[x.dataset.check]=x.checked);return o}
 
 $('saveTradeBtn').onclick=async()=>{
   try{
     const body={
       symbol:$('tSymbol').value, direction:$('tDirection').value, model:$('tModel').value,
-      entry_type:$('tEntryType').value, entry_price:n($('tEntry').value), stop_price:n($('tStop').value),
+      entry_type:$('tEntryType')?.value||'Confirmation Entry', entry_price:n($('tEntry').value), stop_price:n($('tStop').value),
       timeframe:$('tTf').value, htf:$('tHtf').value, emotion:$('tEmotion').value, urge:n($('tUrge').value),
-      reason:$('tReason').value,notes:$('tNotes').value,checklist:checklistObject()
+      reason:$('tReason').value,notes:$('tNotes').value,checklist:automaticChecklist()
     };
-    const score=Object.values(body.checklist).filter(Boolean).length;
-    if(score<defaultRules.length&&!confirm(`${score}/${defaultRules.length} kural işaretli. İşlem eklemeyi engellemiyorum. Yine de kaydetmek istiyor musun?`))return;
     $('saveTradeBtn').disabled=true;setMsg($('saveTradeMsg'),'Hesaplanıyor ve buluta kaydediliyor…');
     const out=await api('/api/trades',{method:'POST',body:JSON.stringify(body)});
     setMsg($('saveTradeMsg'),`Kaydedildi. 1R ${money(out.trade.risk_at_entry)} · 3R hedef ${fmt(out.trade.take_profit_price,8)} · ${out.trade.leverage}x`,'ok');
-    ['tSymbol','tEntry','tStop','tReason','tNotes'].forEach(id=>$(id).value='');document.querySelectorAll('[data-check]').forEach(x=>x.checked=false);
+    ['tSymbol','tEntry','tStop','tReason','tNotes'].forEach(id=>$(id).value='');
     await loadTrades();renderAll();
   }catch(e){setMsg($('saveTradeMsg'),e.message,'error')}
   finally{$('saveTradeBtn').disabled=false}
@@ -237,6 +235,5 @@ $('exportJsonBtn').onclick=()=>download('fero-journal-backup.json',JSON.stringif
 $('exportCsvBtn').onclick=()=>{const head=['date','symbol','direction','model','entry','stop','tp','gross_r','net_r','net_pnl','close_reason'];const rows=trades.map(t=>[t.created_at,t.symbol,t.direction,t.model,t.entry_price,t.stop_price,t.take_profit_price,t.gross_r,t.net_r,t.net_pnl,t.close_reason].map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(','));download('fero-journal.csv',[head.join(','),...rows].join('\n'),'text/csv')};
 function download(name,data,type){const b=new Blob([data],{type}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;a.click();URL.revokeObjectURL(u)}
 
-renderChecklist();
 bootstrap();
 if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
